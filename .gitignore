@@ -1,5 +1,12 @@
-node_modules/
-dist/
+# Rust build artifacts (Cargo.lock is committed for reproducible builds)
+src-tauri/target/
+
+# Tauri generated
+src-tauri/gen/
+
+# OS junk
 .DS_Store
 *.log
+
+# User config (never commit a real token)
 print-agent.json

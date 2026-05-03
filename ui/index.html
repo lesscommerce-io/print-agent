@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <title>LessCommerce Print Agent</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-title">
+      <strong>LessCommerce Print Agent</strong>
+      <span id="version" class="topbar-version"></span>
+    </div>
+    <button id="open-docs" class="btn btn-ghost" type="button">Pomoc</button>
+  </header>
+
+  <main class="content">
+    <!-- Status panel — visible whenever we have a saved config. -->
+    <section id="status-panel" class="card status hidden">
+      <div class="status-row">
+        <div class="status-dot" id="status-dot"></div>
+        <div class="status-text">
+          <div class="status-state" id="status-state">Ładowanie…</div>
+          <div class="status-message muted" id="status-message"></div>
+        </div>
+      </div>
+      <dl class="status-meta">
+        <div><dt>Drukarka systemowa</dt><dd id="status-printer">—</dd></div>
+        <div><dt>Wydrukowane</dt><dd id="status-printed">0</dd></div>
+        <div><dt>Błędy</dt><dd id="status-failed">0</dd></div>
+        <div><dt>Ostatni druk</dt><dd id="status-last">—</dd></div>
+      </dl>
+    </section>
+
+    <!-- Setup form — collapsed once configured (button to expand). -->
+    <section class="card form-card">
+      <h2 id="form-heading">Konfiguracja</h2>
+      <p class="muted" id="form-subtitle">
+        Wklej token z panelu LessCommerce (Ustawienia sklepu → Drukarki etykiet → Dodaj drukarkę).
+        Albo kliknij „Otwórz w Print Agent" w panelu, a token wpisze się sam.
+      </p>
+
+      <form id="setup-form">
+        <label class="field">
+          <span>Adres API</span>
+          <input
+            type="url"
+            id="api-url"
+            name="api_url"
+            placeholder="https://api.lesscommerce.io"
+            required
+            autocomplete="off"
+          />
+        </label>
+
+        <label class="field">
+          <span>Token drukarki</span>
+          <input
+            type="password"
+            id="printer-token"
+            name="printer_token"
+            placeholder="lpa_live_…"
+            required
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <small class="muted">Token jest jak hasło — przechowywany tylko lokalnie na tym komputerze.</small>
+        </label>
+
+        <label class="field">
+          <span>Drukarka systemowa</span>
+          <div class="printer-row">
+            <select id="system-printer" name="system_printer" required>
+              <option value="">— wybierz drukarkę —</option>
+            </select>
+            <button type="button" id="refresh-printers" class="btn btn-ghost" title="Odśwież listę drukarek">
+              ↻
+            </button>
+          </div>
+          <small class="muted" id="printers-help">Lista pobierana z systemu (CUPS / Get-Printer).</small>
+        </label>
+
+        <label class="field-checkbox">
+          <input type="checkbox" id="launch-at-login" name="launch_at_login" />
+          <span>Uruchamiaj automatycznie po zalogowaniu</span>
+        </label>
+
+        <div class="form-actions">
+          <button type="submit" id="save-btn" class="btn btn-primary">
+            Zapisz i uruchom
+          </button>
+          <span id="form-message" class="muted"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="card subtle">
+      <p class="muted small">
+        Konfiguracja przechowywana w
+        <code id="config-path">~/.config/lesscommerce/print-agent.json</code>.
+        Token jest jak hasło — chronimy plik OS-owymi uprawnieniami.
+      </p>
+    </section>
+  </main>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

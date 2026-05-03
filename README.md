@@ -1,176 +1,129 @@
 # LessCommerce Print Agent
 
-Lekki demon (~50 MB binarka), który łączy lokalną drukarkę kodów kreskowych z chmurową kolejką druku w LessCommerce. Po instalacji i konfiguracji odpytuje API co 5 sekund o nowe etykiety, drukuje je na podpiętej drukarce (Zebra, Brother QL, DYMO …) i potwierdza.
+Lekka aplikacja desktopowa (~15 MB) która łączy lokalną drukarkę kodów kreskowych z chmurową kolejką druku w LessCommerce. Po instalacji siedzi w pasku systemowym (system tray), odpytuje API co 5 sekund o nowe etykiety, drukuje je na podpiętej drukarce (Zebra, Brother QL, DYMO, …) i potwierdza.
 
-## Wymagania
+## Pobieranie
 
-- **Linux**: zainstalowany CUPS (`lp` w PATH). Drukarka rozpoznana przez system (`lpstat -p`).
-- **macOS**: jak Linux — CUPS jest preinstalowany.
-- **Windows**: drukarka zainstalowana w „Devices and Printers". Zalecane: [SumatraPDF](https://www.sumatrapdfreader.org/) w PATH (do druku PDF; bez niego agent użyje `Start-Process -Verb PrintTo`, ale SumatraPDF jest deterministyczny).
+| OS | Plik | Notatki |
+|---|---|---|
+| **Windows** | `.msi` (zalecany) lub `.exe` (NSIS portable) | Rejestruje deep-link i autostart |
+| **macOS** | `.dmg` (Apple Silicon — `aarch64`, Intel — `x64`) | Pierwsze uruchomienie: prawy klik → Open |
+| **Linux** | `.AppImage` lub `.deb` | AppImage = jeden plik, bez instalacji |
 
-## Instalacja
+[**Najnowsza wersja → GitHub Releases**](https://github.com/lesscommerce-io/print-agent/releases/latest)
 
-Pobierz binarkę dla swojego systemu z [GitHub Releases](https://github.com/lesscommerce-io/print-agent/releases/latest) i umieść w PATH (`/usr/local/bin/`, `~/bin/` lub `C:\Program Files\LessCommerce\`).
+Po ściągnięciu zainstaluj klikając installer (Windows/Mac), albo przeciągnij `.app` do `Applications` (Mac DMG), albo `chmod +x foo.AppImage && ./foo.AppImage` (Linux).
 
-## Konfiguracja
+## Pierwsze uruchomienie
 
-```bash
-lesscommerce-print-agent setup
-```
+1. Otwórz aplikację — pojawi się okno setupu.
+2. W panelu LessCommerce kliknij **Ustawienia sklepu → Drukarki etykiet → Dodaj drukarkę**, a potem **„Otwórz w Print Agent"** w bannerze z tokenem.
+3. Aplikacja sama wczyta token i adres API. Wybierz drukarkę systemową z dropdownu, zaznacz „Uruchamiaj automatycznie po zalogowaniu" i kliknij **Zapisz i uruchom**.
+4. Okno chowa się do trayu — od teraz prawy klik na ikonę → menu z opcjami, lewy klik → przywraca okno.
 
-Wizard zapyta o:
-1. **API URL** (zazwyczaj `https://api.lesscommerce.io`)
-2. **Token drukarki** — wygenerowany w panelu admina (Ustawienia sklepu → Drukarki etykiet → Dodaj drukarkę)
-3. **Drukarkę systemową** — wybierasz z listy wykrytej automatycznie
-4. **Poll interval** — domyślnie 5 sekund
-
-Konfiguracja trafia do:
-- Linux/macOS: `~/.config/lesscommerce/print-agent.json`
+Konfiguracja zapisywana jest w:
+- Linux: `~/.config/lesscommerce/print-agent.json`
+- macOS: `~/Library/Application Support/io.lesscommerce.print-agent/print-agent.json`
 - Windows: `%APPDATA%\lesscommerce\print-agent.json`
-
-Po setupie agent zrobi heartbeat i potwierdzi że token + drukarka działają.
-
-## Uruchamianie
-
-### Foreground (do testów)
-
-```bash
-lesscommerce-print-agent run
-```
-
-Polling loop loguje na stdout:
-```
-LessCommerce Print Agent v0.1.0
-API: https://api.lesscommerce.io
-System printer: Zebra ZD220
-
-[job] a3f1d8e0… tracking=628012345678 format=pdf bytes=14623
-[job] a3f1d8e0… printed in 1842ms
-```
-
-Ctrl-C zatrzymuje.
-
-### Auto-start (linux)
-
-systemd unit:
-```ini
-# /etc/systemd/system/lesscommerce-print-agent.service
-[Unit]
-Description=LessCommerce Print Agent
-After=cups.service network-online.target
-Wants=cups.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/lesscommerce-print-agent run
-User=admin
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now lesscommerce-print-agent
-sudo journalctl -u lesscommerce-print-agent -f
-```
-
-### Auto-start (macOS)
-
-LaunchAgent w `~/Library/LaunchAgents/io.lesscommerce.print-agent.plist`:
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>io.lesscommerce.print-agent</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/usr/local/bin/lesscommerce-print-agent</string>
-    <string>run</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/tmp/lesscommerce-print-agent.log</string>
-  <key>StandardErrorPath</key><string>/tmp/lesscommerce-print-agent.err</string>
-</dict>
-</plist>
-```
-
-```bash
-launchctl load ~/Library/LaunchAgents/io.lesscommerce.print-agent.plist
-```
-
-### Auto-start (Windows)
-
-Najprostsza opcja — Task Scheduler:
-1. Otwórz „Task Scheduler" → „Create Basic Task"
-2. Trigger: „When I log on"
-3. Action: „Start a program" → `C:\Program Files\LessCommerce\lesscommerce-print-agent.exe` z argumentem `run`
-4. „Run whether user is logged on or not" + „Run with highest privileges"
-
-Albo zarejestruj jako service przez [NSSM](https://nssm.cc/):
-```cmd
-nssm install LessCommercePrintAgent "C:\Program Files\LessCommerce\lesscommerce-print-agent.exe" run
-nssm start LessCommercePrintAgent
-```
-
-## Komendy CLI
-
-| Komenda | Opis |
-|---|---|
-| `setup` | Interaktywny wizard konfiguracji |
-| `run` | Uruchamia polling loop (foreground) |
-| `list-printers` | Listuje drukarki widoczne w systemie |
-| `version` | Wyświetla wersję |
 
 ## Format etykiet
 
-Agent obsługuje:
-- **PDF** (default; InPost, DPD i wszystko inne) — drukowane przez SumatraPDF / `lp`
-- **ZPL/EPL** (raw — InPost ShipX wspiera) — wysyłane bajt-po-bajcie do drukarki przez `lp -o raw` / `Out-Printer`
+- **PDF** (default; InPost, DPD i wszystko inne) — drukowane przez SumatraPDF (Win) / `lp` (Linux/macOS)
+- **ZPL/EPL** (raw) — wysyłane bajt-po-bajcie do drukarki przez `lp -o raw` / `Out-Printer`
 
-Format jest dyktowany przez serwer per-job (header `X-Print-Job-Format`). Agent nie wybiera.
+Format dyktowany przez serwer per-job (`X-Print-Job-Format` header).
+
+## Wymagania systemowe
+
+- **Linux**: zainstalowany CUPS (`lp` w PATH). WebKit2GTK 4.1+ (preinstalowany w Ubuntu 22.04+, Fedora 36+).
+- **macOS**: 10.15+. CUPS preinstalowany.
+- **Windows**: 10/11. Zalecane: [SumatraPDF](https://www.sumatrapdfreader.org/) w PATH (deterministyczne silent printing PDF). Bez niego agent użyje `Start-Process -Verb PrintTo` jako fallback.
+
+## Pierwsze uruchomienie — ostrzeżenia OS
+
+Aplikacja nie jest podpisana cyfrowo (świadomy wybór: 0 PLN kosztów vs $400/rok za certyfikaty). Konsekwencje:
+
+- **Windows**: SmartScreen pokaże „unrecognized app". Klik **More info → Run anyway**. OS zapamięta wybór.
+- **macOS**: pierwszy klik → „App can't be opened because it is from an unidentified developer". Idź do **Ustawienia → Privacy & Security → Open Anyway**, albo prawy klik na app → **Open** w dialogu.
+- **Linux**: brak warning'a. AppImage / .deb po prostu działają.
 
 ## Bezpieczeństwo
 
 - Token przechowywany jest plain-text w pliku konfiguracyjnym lokalnie. Chrońmy ten plik OS-owymi ACL-ami (Linux/macOS — `chmod 600`, Windows — domyślne pliki w `%APPDATA%` są user-only).
 - Token nigdy nie wraca z serwera — jest pokazany **raz** przy tworzeniu drukarki w panelu. Stracony = wymień token (button „Wymień token" w panelu) i przekonfiguruj agenta.
-- Komunikacja zawsze przez HTTPS. Agent waliduje cert (Bun fetch).
+- Komunikacja zawsze przez HTTPS.
 
 ## Troubleshooting
 
-### „No config found"
+### Aplikacja nie wykrywa drukarki
 
-Nie odpaliłeś `setup` albo plik konfiguracyjny zniknął. Odpal setup ponownie.
+Linux/Mac: sprawdź `lpstat -p` w terminalu — drukarka musi tam być widoczna. Jeśli nie ma, dodaj ją w System Settings → Printers.
 
-### „heartbeat failed: 401"
+Windows: sprawdź „Devices and Printers" w Panelu sterowania.
 
-Token został wymieniony albo drukarka usunięta. Wygeneruj nowy token w panelu i odpal `setup` ponownie.
+W obu przypadkach kliknij ↻ obok dropdownu w setupie żeby odświeżyć listę.
 
-### „lp exited 1: No such file or directory"
+### Status „Error" z komunikatem 401
 
-Drukarka systemowa o tej nazwie nie istnieje. `lesscommerce-print-agent list-printers` pokaże dostępne, potem odpal setup ponownie.
+Token został wymieniony lub drukarka usunięta w panelu. Wygeneruj nowy token i otwórz nowy „Otwórz w Print Agent" link, albo wklej token ręcznie do okna setupu.
+
+### Zadania utykają w „claimed"
+
+To znaczy że agent wziął zlecenie ale go nie zakwitował (crash, sieć padła). W panelu LessCommerce → Wysyłki → Kolejka druku zobaczysz badge **„Zacięte"** po 5 minutach. Klik **„Ponów"** zwraca zadanie do `pending` — ten sam agent je weźmie w następnym pollu.
 
 ### Druk PDF na Windows pyta o aplikację
 
-Brakuje SumatraPDF — albo ją zainstaluj (zalecane), albo Adobe Acrobat ustaw jako default dla `.pdf`. Inaczej agent użyje fallbacka `Start-Process` co czasem pokazuje preview okno.
-
-### Job stuck w „claimed"
-
-Agent wziął zlecenie ale nie zakwitował (crash, sieć padła). Po restarcie agent **nie** wraca do tego joba — admin musi w panelu kliknąć „Ponów" w kolejce druku albo poczekać aż timeout cleanup go zwróci do pendingu (TODO).
+Brakuje SumatraPDF — zainstaluj ją (zalecane dla termo-drukarek), albo ustaw Adobe Acrobat jako default dla `.pdf`.
 
 ## Development
 
 ```bash
-bun install
-bun run dev setup
-bun run dev run
+# Wymagania: Rust 1.77+, Node.js (dla niczego — frontend jest pure HTML),
+# WebKit2GTK na Linux (sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev)
+
+cargo install tauri-cli --version "^2.0" --locked
+
+# Dev mode — odpala Tauri z hot reload
+cd src-tauri && cargo tauri dev
+
+# Production build dla obecnego OS
+cd src-tauri && cargo tauri build
+
+# Output:
+#   target/release/bundle/macos/*.app, *.dmg
+#   target/release/bundle/appimage/*.AppImage
+#   target/release/bundle/deb/*.deb
+#   target/release/bundle/msi/*.msi
+#   target/release/bundle/nsis/*.exe
 ```
 
-Build cross-platform:
-```bash
-bun run build:all   # all 5 binaries → dist/
+Cross-build dla wszystkich OS-ów robi GitHub Actions na tag `v*` push (`.github/workflows/release.yml`).
+
+## Architektura
+
 ```
+src-tauri/         # Rust backend
+├── src/
+│   ├── main.rs      # Entry point — calls lib.rs::run()
+│   ├── lib.rs       # Tauri builder + IPC commands + tray + deep-link
+│   ├── api.rs       # HTTP client (heartbeat / fetch_next / ack)
+│   ├── config.rs    # Load/save print-agent.json
+│   ├── poller.rs    # Polling loop (tokio task)
+│   └── printer.rs   # Discovery + send-to-printer (CUPS / Get-Printer / SumatraPDF)
+├── icons/           # App + tray icons (PNG, ICNS, ICO)
+├── tauri.conf.json  # Window/bundle/plugin config
+└── capabilities/    # IPC permissions (Tauri 2 security model)
+
+ui/                  # Frontend — vanilla HTML/CSS/JS, no build step
+├── index.html       # Setup window
+├── main.js          # IPC calls + DOM
+└── styles.css       # Light + dark mode
+```
+
+Logika polling loopa w `poller.rs`:
+1. **heartbeat** — bumpy `last_seen_at` server-side, server zwraca poll cadence
+2. **fetch_next** — atomowy claim joba (na BE: `SELECT … FOR UPDATE SKIP LOCKED`); 204 = pusta kolejka
+3. **print** — temp file + lp/SumatraPDF
+4. **ack** — `printed` z duration_ms, albo `failed` z error message
+
+Status emitowany przez Tauri event `poller-status` do okna setupu (live UI: kropka koloru + komunikat + licznik wydrukowanych/błędów).

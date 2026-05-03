@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release (e.g. v0.1.0)"
+        description: "Tag to release (e.g. v0.2.0)"
         required: true
 
 permissions:
@@ -15,51 +15,69 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-14         # Apple Silicon (M-chip)
+            target: aarch64-apple-darwin
+            label: macos-arm64
+            bundles: app,dmg
+          - platform: macos-13         # Intel Mac (legacy)
+            target: x86_64-apple-darwin
+            label: macos-x64
+            bundles: app,dmg
+          - platform: ubuntu-22.04     # Linux x64 (AppImage + .deb)
+            target: x86_64-unknown-linux-gnu
+            label: linux-x64
+            bundles: appimage,deb
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: windows-x64
+            bundles: msi,nsis
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install deps
-        run: bun install
-
-      - name: Type check
-        run: bun run lint
-
-      # Bun cross-compile produces a single self-contained binary per target.
-      # No runtime, no node_modules to ship — just the binary.
-      - name: Build all targets
-        run: bun run build:all
-
-      - name: Compute checksums
-        working-directory: dist
+      - name: Install Linux deps
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
-          shasum -a 256 lesscommerce-print-agent-* > SHA256SUMS
-          cat SHA256SUMS
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            patchelf
 
-      - name: Resolve tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "name=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          tag_name: ${{ steps.tag.outputs.name }}
-          name: print-agent ${{ steps.tag.outputs.name }}
-          generate_release_notes: true
-          files: |
-            dist/lesscommerce-print-agent-linux-x64
-            dist/lesscommerce-print-agent-linux-arm64
-            dist/lesscommerce-print-agent-darwin-x64
-            dist/lesscommerce-print-agent-darwin-arm64
-            dist/lesscommerce-print-agent-windows-x64.exe
-            dist/SHA256SUMS
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build with tauri-action
+        # tauri-action wraps `tauri build` and uploads artifacts to releases.
+        # We rely on the matrix `bundles` field to control output formats.
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          releaseName: "print-agent ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          releaseBody: |
+            Desktop print agent for LessCommerce label printing.
+
+            ## Downloads
+            - **Windows**: `.msi` (recommended, registers deep-link + autostart) or portable `.exe`
+            - **macOS**: `.dmg` — drag to Applications. First run: right-click → Open (unsigned).
+            - **Linux**: `.AppImage` (single-file, no install) or `.deb` (installs system-wide)
+
+            See [README](https://github.com/lesscommerce-io/print-agent#readme) for setup.
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}

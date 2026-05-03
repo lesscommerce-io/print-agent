@@ -1,0 +1,57 @@
+[package]
+name = "lesscommerce-print-agent"
+version = "0.2.0"
+description = "Desktop print agent for LessCommerce label printing"
+authors = ["LessCommerce"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "lesscommerce_print_agent_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri core + plugins. Tauri 2 splits the kitchen-sink crate of v1 into
+# focused plugins; we only enable what we use to keep the binary small.
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-process = "2"
+tauri-plugin-opener = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# HTTP — rustls so we don't drag in OpenSSL across all 3 OSes.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# Async runtime + a one-shot stop signal for the polling loop.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "process"] }
+
+# Logging — `log` for call sites, `env_logger` flushes to stderr (visible in
+# the macOS Console, Windows Event Viewer, or `journalctl` on Linux).
+log = "0.4"
+env_logger = "0.11"
+
+thiserror = "2"
+anyhow = "1"
+url = "2"
+hostname = "0.4"
+tempfile = "3"
+
+# `directories` resolves OS-canonical config paths (XDG on Linux,
+# ~/Library on Mac, %APPDATA% on Windows).
+directories = "6"
+
+[features]
+# This feature is used for production builds or when a dev server is not
+# specified. Tauri's loader fall-back to embedded assets requires the feature.
+custom-protocol = ["tauri/custom-protocol"]
