@@ -81,3 +81,40 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      # tauri-action uploads the artifacts under their bundle-default names,
+      # which include the app version (e.g. `LessCommerce.Print.Agent_0.3.1_x64-setup.exe`).
+      # That breaks `releases/latest/download/<file>` links because the
+      # filename changes every release. Re-upload the same bytes under a
+      # stable, version-less name so the LessCommerce panel can hard-code
+      # download URLs.
+      - name: Re-upload assets under stable names
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
+          mkdir -p stable
+          case "${{ matrix.label }}" in
+            windows-x64)
+              # NSIS produces <name>_<version>_x64-setup.exe — easier install,
+              # silent install via /S. MSI also uploaded for IT-managed deployments.
+              cp "$BUNDLE_DIR"/nsis/*-setup.exe stable/lesscommerce-print-agent-windows-x64-setup.exe
+              cp "$BUNDLE_DIR"/msi/*_x64_*.msi  stable/lesscommerce-print-agent-windows-x64.msi
+              ;;
+            macos-arm64)
+              cp "$BUNDLE_DIR"/dmg/*.dmg stable/lesscommerce-print-agent-macos-arm64.dmg
+              ;;
+            macos-x64)
+              cp "$BUNDLE_DIR"/dmg/*.dmg stable/lesscommerce-print-agent-macos-x64.dmg
+              ;;
+            linux-x64)
+              cp "$BUNDLE_DIR"/appimage/*.AppImage stable/lesscommerce-print-agent-linux-x64.AppImage
+              cp "$BUNDLE_DIR"/deb/*.deb           stable/lesscommerce-print-agent-linux-x64.deb
+              ;;
+          esac
+          ls -la stable/
+          gh release upload "$TAG" stable/lesscommerce-print-agent-* --clobber -R "${{ github.repository }}"
