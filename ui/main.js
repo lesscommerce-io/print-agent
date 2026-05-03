@@ -1,43 +1,24 @@
-// Setup window logic. Talks to Rust via Tauri's `invoke()`. Listens for two
-// events:
-//   poller-status   — emitted by the polling task whenever its state changes
-//   pairing-payload — emitted when a deep link `lesscommerce-print-agent://`
-//                     arrives; we pre-fill the form so the user only clicks
-//                     "Save and run".
+// Setup window controller. Three screens:
+//   1. PAIR     — single button "Powiąż z LessCommerce" → opens panel page
+//                 in default browser, waits for the deep-link to come back
+//   2. PRINTER  — pick the system printer (only thing that varies per host)
+//   3. STATUS   — live "currently printing X" feedback
+//
+// Rust backend exposes:
+//   start_pairing()         → opens browser, returns the device_code we expect
+//   load_pairing_state()    → has the user finished pairing? returns config or null
+//   list_printers()
+//   finish_setup({ system_printer, launch_at_login })  → saves config + starts polling
+//   unpair()                → wipes config, returns to PAIR screen
+//   get_status()
+//   open_documentation()
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const { getCurrentWindow } = window.__TAURI__.window;
 
-// =============================================================================
-// DOM refs
-// =============================================================================
-
 const $ = (id) => document.getElementById(id);
-const els = {
-  versionBadge: $("version"),
-  statusPanel: $("status-panel"),
-  statusDot: $("status-dot"),
-  statusState: $("status-state"),
-  statusMessage: $("status-message"),
-  statusPrinter: $("status-printer"),
-  statusPrinted: $("status-printed"),
-  statusFailed: $("status-failed"),
-  statusLast: $("status-last"),
-
-  form: $("setup-form"),
-  apiUrl: $("api-url"),
-  printerToken: $("printer-token"),
-  systemPrinter: $("system-printer"),
-  launchAtLogin: $("launch-at-login"),
-  refreshPrinters: $("refresh-printers"),
-  saveBtn: $("save-btn"),
-  formMessage: $("form-message"),
-
-  openDocs: $("open-docs"),
-  formHeading: $("form-heading"),
-  formSubtitle: $("form-subtitle"),
-};
+const SCREENS = ["pair", "printer", "status"];
 
 const stateLabels = {
   idle: "Czekam na zlecenia",
@@ -49,80 +30,52 @@ const stateLabels = {
 };
 
 // =============================================================================
-// Init
+// Screen routing
 // =============================================================================
 
-async function init() {
-  hydrateConfigPath();
+function show(screen) {
+  for (const id of SCREENS) {
+    $(`screen-${id}`).classList.toggle("hidden", id !== screen);
+  }
+}
 
-  // Load saved config (if any) and pre-fill the form.
-  let cfg = null;
+// =============================================================================
+// Screen 1: PAIR
+// =============================================================================
+
+let pairingActive = false;
+
+async function startPairing() {
+  if (pairingActive) return;
+  pairingActive = true;
+  $("btn-start-pair").disabled = true;
+  $("pair-status").classList.remove("hidden");
   try {
-    cfg = await invoke("load_config");
+    await invoke("start_pairing");
+    // The deep-link listener (below) will flip us to the printer screen
+    // once the browser bounces back. Nothing else to do here.
   } catch (err) {
-    console.error("load_config failed", err);
+    console.error("start_pairing failed", err);
+    $("btn-start-pair").disabled = false;
+    pairingActive = false;
+    $("pair-status").classList.add("hidden");
+    alert("Nie udało się otworzyć przeglądarki: " + err);
   }
-  if (cfg) applyConfigToForm(cfg);
-
-  // Refresh the system-printer dropdown.
-  await refreshPrinters(cfg?.system_printer);
-
-  // Show status panel if we have a complete config — otherwise it's the first
-  // run and the form is the focus.
-  if (cfg && cfg.api_url && cfg.printer_token && cfg.system_printer) {
-    els.statusPanel.classList.remove("hidden");
-    els.formHeading.textContent = "Aktualizuj konfigurację";
-    els.formSubtitle.textContent =
-      "Edytuj poniżej i kliknij „Zapisz" — agent przeładuje połączenie.";
-    refreshStatus();
-  }
-
-  // Push live status updates from Rust.
-  listen("poller-status", (event) => {
-    renderStatus(event.payload);
-    els.statusPanel.classList.remove("hidden");
-  });
-
-  // Pre-fill from deep-link payload (overrides any existing form values —
-  // explicit user intent beats whatever's typed).
-  listen("pairing-payload", (event) => {
-    const payload = event.payload || {};
-    if (payload.api) els.apiUrl.value = payload.api;
-    if (payload.token) els.printerToken.value = payload.token;
-    flashMessage(`Wczytano dane z panelu: ${payload.name || "drukarka"}`);
-    // Bring the window forward (deep link triggers from background).
-    try { getCurrentWindow().setFocus(); } catch {}
-  });
-
-  // Wire up the form.
-  els.form.addEventListener("submit", onSubmit);
-  els.refreshPrinters.addEventListener("click", () => refreshPrinters(els.systemPrinter.value));
-  els.openDocs.addEventListener("click", () => invoke("open_documentation").catch(console.error));
 }
 
-function hydrateConfigPath() {
-  // Best-effort placeholder — real path lives Rust-side. We just set a hint
-  // for the user; the exact directory differs per OS.
-  const ua = navigator.userAgent.toLowerCase();
-  let path = "~/.config/lesscommerce/print-agent.json";
-  if (ua.includes("windows") || ua.includes("win64")) {
-    path = "%APPDATA%\\lesscommerce\\print-agent.json";
-  } else if (ua.includes("mac os")) {
-    path = "~/Library/Application Support/io.lesscommerce.print-agent/print-agent.json";
-  }
-  $("config-path").textContent = path;
+function cancelPairing() {
+  pairingActive = false;
+  $("btn-start-pair").disabled = false;
+  $("pair-status").classList.add("hidden");
+  invoke("cancel_pairing").catch(() => {});
 }
 
-function applyConfigToForm(cfg) {
-  els.apiUrl.value = cfg.api_url || "";
-  els.printerToken.value = cfg.printer_token || "";
-  els.launchAtLogin.checked = !!cfg.launch_at_login;
-  // The select is populated async — we'll set the value after refresh.
-  els.systemPrinter.dataset.preselect = cfg.system_printer || "";
-}
+// =============================================================================
+// Screen 2: PRINTER PICK
+// =============================================================================
 
 async function refreshPrinters(preferred) {
-  const select = els.systemPrinter;
+  const select = $("system-printer");
   select.innerHTML = '<option value="">— ładowanie… —</option>';
   try {
     const list = await invoke("list_printers");
@@ -133,55 +86,50 @@ async function refreshPrinters(preferred) {
       opt.textContent = p.name;
       select.appendChild(opt);
     }
-    const target = preferred || select.dataset.preselect;
-    if (target) select.value = target;
-    if (list.length === 0) {
-      $("printers-help").textContent =
-        "Nie wykryto żadnych drukarek systemowych. Zainstaluj sterownik drukarki w systemie i kliknij ↻.";
-    } else {
-      $("printers-help").textContent = `Wykryto ${list.length} drukarek w systemie.`;
-    }
+    if (preferred) select.value = preferred;
+    $("printers-help").textContent = list.length
+      ? `Wykryto ${list.length} drukarek w systemie.`
+      : "Nie wykryto żadnych drukarek systemowych. Zainstaluj sterownik drukarki w systemie i kliknij ↻.";
   } catch (err) {
-    select.innerHTML = '<option value="">— błąd: ' + (err || "unknown") + " —</option>";
+    select.innerHTML = `<option value="">— błąd: ${err} —</option>`;
     $("printers-help").textContent = "Nie udało się pobrać listy. Czy CUPS / Spooler działa?";
   }
 }
 
-async function onSubmit(event) {
-  event.preventDefault();
-  els.saveBtn.disabled = true;
-  flashMessage("Zapisuję…");
+async function finishSetup() {
+  const systemPrinter = $("system-printer").value.trim();
+  if (!systemPrinter) {
+    $("finish-message").textContent = "Wybierz drukarkę.";
+    $("finish-message").style.color = "var(--error)";
+    return;
+  }
+  const launchAtLogin = $("launch-at-login").checked;
 
-  const cfg = {
-    api_url: els.apiUrl.value.trim().replace(/\/+$/, ""),
-    printer_token: els.printerToken.value.trim(),
-    system_printer: els.systemPrinter.value.trim(),
-    launch_at_login: els.launchAtLogin.checked,
-    poll_interval: 5,
-    display_name: null,
-  };
-
+  $("btn-finish").disabled = true;
+  $("finish-message").textContent = "Zapisuję…";
+  $("finish-message").style.color = "var(--muted)";
   try {
-    await invoke("save_config", { cfg });
-    // Toggle autostart per user choice.
-    try {
-      await invoke("set_autostart", { enabled: cfg.launch_at_login });
-    } catch (err) {
-      console.warn("autostart toggle failed", err);
-    }
-    flashMessage("Zapisane. Agent się łączy…", "ok");
-    els.statusPanel.classList.remove("hidden");
+    await invoke("finish_setup", { systemPrinter, launchAtLogin });
+    show("status");
     refreshStatus();
   } catch (err) {
-    console.error("save_config failed", err);
-    flashMessage(typeof err === "string" ? err : "Błąd zapisu", "error");
-  } finally {
-    els.saveBtn.disabled = false;
+    console.error("finish_setup failed", err);
+    $("finish-message").textContent = String(err);
+    $("finish-message").style.color = "var(--error)";
+    $("btn-finish").disabled = false;
   }
 }
 
+// =============================================================================
+// Screen 3: STATUS
+// =============================================================================
+
 async function refreshStatus() {
   try {
+    const cfg = await invoke("load_pairing_state");
+    if (cfg) {
+      $("status-system-printer").textContent = cfg.system_printer || "—";
+    }
     const status = await invoke("get_status");
     renderStatus(status);
   } catch (err) {
@@ -190,29 +138,89 @@ async function refreshStatus() {
 }
 
 function renderStatus(status) {
-  els.statusDot.className = "status-dot " + (status.state || "unconfigured");
-  els.statusState.textContent = stateLabels[status.state] || status.state || "—";
-  els.statusMessage.textContent = status.last_message || "";
-  els.statusPrinter.textContent = status.printer_name || "—";
-  els.statusPrinted.textContent = status.jobs_printed ?? 0;
-  els.statusFailed.textContent = status.jobs_failed ?? 0;
-  els.statusLast.textContent = formatRelative(status.last_printed_at);
+  $("status-dot").className = "status-dot " + (status.state || "unconfigured");
+  $("status-state").textContent = stateLabels[status.state] || status.state || "—";
+  $("status-message").textContent = status.last_message || "";
+  $("status-printer").textContent = status.printer_name || "—";
+  $("status-printed").textContent = status.jobs_printed ?? 0;
+  $("status-failed").textContent = status.jobs_failed ?? 0;
 }
 
-function formatRelative(iso) {
-  if (!iso) return "—";
-  // Our Rust uses "<unix-secs>.<ms>Z". Parse cheaply.
-  const match = /^(\d+)\.(\d+)Z$/.exec(iso);
-  const date = match ? new Date(parseInt(match[1], 10) * 1000) : new Date(iso);
-  if (isNaN(date.getTime())) return "—";
-  return date.toLocaleTimeString();
+async function unpair() {
+  if (!confirm("Na pewno odpiąć tę drukarkę? Przed kolejnym drukowaniem trzeba sparować ponownie.")) {
+    return;
+  }
+  try {
+    await invoke("unpair");
+    show("pair");
+    pairingActive = false;
+    $("btn-start-pair").disabled = false;
+    $("pair-status").classList.add("hidden");
+  } catch (err) {
+    alert("Nie udało się odpiąć: " + err);
+  }
 }
 
-function flashMessage(text, kind) {
-  els.formMessage.textContent = text || "";
-  els.formMessage.style.color = kind === "ok" ? "var(--success)"
-    : kind === "error" ? "var(--error)"
-    : "var(--muted)";
+// =============================================================================
+// Boot
+// =============================================================================
+
+async function init() {
+  // Decide initial screen: if we already have a complete config, jump
+  // straight to status. Otherwise show the Pair button.
+  let cfg = null;
+  try {
+    cfg = await invoke("load_pairing_state");
+  } catch (err) {
+    console.error("load_pairing_state failed", err);
+  }
+
+  if (cfg && cfg.system_printer) {
+    show("status");
+    refreshStatus();
+  } else if (cfg) {
+    // Mid-flow: pairing finished but printer not yet picked. This happens
+    // if the user closed the window between deep-link return and finish.
+    show("printer");
+    $("paired-name").textContent = cfg.display_name || "drukarką";
+    refreshPrinters(cfg.system_printer);
+  } else {
+    show("pair");
+  }
+
+  // The Rust side fires this event the moment the deep-link arrives —
+  // we flip to the printer screen with the paired display name.
+  listen("paired", (event) => {
+    const payload = event.payload || {};
+    pairingActive = false;
+    $("btn-start-pair").disabled = false;
+    $("pair-status").classList.add("hidden");
+    show("printer");
+    $("paired-name").textContent = payload.name || "drukarką";
+    refreshPrinters();
+    try { getCurrentWindow().setFocus(); } catch {}
+  });
+
+  listen("pairing-error", (event) => {
+    pairingActive = false;
+    $("btn-start-pair").disabled = false;
+    $("pair-status").classList.add("hidden");
+    alert("Powiązanie nie powiodło się: " + (event.payload || ""));
+  });
+
+  listen("poller-status", (event) => {
+    if (!$("screen-status").classList.contains("hidden")) {
+      renderStatus(event.payload);
+    }
+  });
+
+  // Wire buttons
+  $("btn-start-pair").addEventListener("click", startPairing);
+  $("btn-cancel-pair").addEventListener("click", cancelPairing);
+  $("refresh-printers").addEventListener("click", () => refreshPrinters($("system-printer").value));
+  $("btn-finish").addEventListener("click", finishSetup);
+  $("btn-unpair").addEventListener("click", unpair);
+  $("open-docs").addEventListener("click", () => invoke("open_documentation").catch(console.error));
 }
 
 init();

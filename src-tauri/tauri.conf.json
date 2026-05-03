@@ -8,6 +8,7 @@
     "devUrl": "http://localhost:1420"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
@@ -29,8 +30,8 @@
     },
     "trayIcon": {
       "id": "main",
-      "iconPath": "icons/tray.png",
-      "iconAsTemplate": true,
+      "iconPath": "icons/tray-idle.png",
+      "iconAsTemplate": false,
       "tooltip": "LessCommerce Print Agent",
       "menuOnLeftClick": false
     }

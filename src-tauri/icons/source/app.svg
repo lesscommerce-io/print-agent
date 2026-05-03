@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Modern macOS-style squircle background with subtle gradient -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1e3a8a"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="64" y="64" width="896" height="896" rx="200" ry="200" fill="url(#bg)"/>
+
+  <!-- Shipping label "card" inside, white. Sized so the barcode dominates. -->
+  <rect x="200" y="220" width="624" height="584" rx="36" ry="36" fill="#ffffff"/>
+
+  <!-- Top bar of the label — like the courier strip -->
+  <rect x="200" y="220" width="624" height="60" rx="36" ry="0" fill="#1e3a8a"/>
+
+  <!-- Big bold barcode — 16 stripes with realistic varying widths. The
+       widest visual element on the icon, so it's instantly readable down
+       to 16x16. -->
+  <g fill="#0f172a">
+    <rect x="240" y="320" width="22" height="280"/>
+    <rect x="276" y="320" width="14" height="280"/>
+    <rect x="304" y="320" width="38" height="280"/>
+    <rect x="356" y="320" width="14" height="280"/>
+    <rect x="384" y="320" width="22" height="280"/>
+    <rect x="420" y="320" width="14" height="280"/>
+    <rect x="448" y="320" width="38" height="280"/>
+    <rect x="500" y="320" width="14" height="280"/>
+    <rect x="528" y="320" width="22" height="280"/>
+    <rect x="564" y="320" width="38" height="280"/>
+    <rect x="616" y="320" width="14" height="280"/>
+    <rect x="644" y="320" width="22" height="280"/>
+    <rect x="680" y="320" width="14" height="280"/>
+    <rect x="708" y="320" width="38" height="280"/>
+    <rect x="760" y="320" width="14" height="280"/>
+    <rect x="788" y="320" width="22" height="280"/>
+  </g>
+
+  <!-- Tracking number below — abstract bars so it's recognizable as a
+       label without needing legible text at icon sizes. -->
+  <rect x="240" y="650" width="544" height="20" rx="4" fill="#1e293b"/>
+  <rect x="240" y="690" width="380" height="14" rx="3" fill="#94a3b8"/>
+  <rect x="240" y="720" width="280" height="14" rx="3" fill="#cbd5f5"/>
+  <rect x="240" y="750" width="200" height="14" rx="3" fill="#cbd5f5"/>
+
+  <!-- "Live" dot — green status pip in the corner, hints at the live
+       polling nature of the agent. -->
+  <circle cx="754" cy="710" r="34" fill="#22c55e"/>
+  <circle cx="754" cy="710" r="48" fill="#22c55e" opacity="0.25"/>
+</svg>

@@ -68,6 +68,26 @@ body {
 .card.subtle { background: transparent; border-style: dashed; }
 .card h2 { margin: 0 0 4px; font-size: 16px; }
 
+/* Hero card — first-launch "Pair with LessCommerce" CTA */
+.card.hero {
+  text-align: center;
+  padding: 32px 24px;
+}
+.hero-icon { font-size: 48px; margin-bottom: 12px; }
+.card.hero h2 { font-size: 20px; margin-bottom: 12px; }
+.card.hero p { margin-bottom: 24px; }
+.btn-lg { padding: 12px 24px; font-size: 15px; }
+.btn-link {
+  background: transparent;
+  border: 0;
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+  font-size: inherit;
+}
+.mt-2 { margin-top: 8px; }
+
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .hidden { display: none !important; }

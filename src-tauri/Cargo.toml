@@ -46,6 +46,9 @@ anyhow = "1"
 url = "2"
 hostname = "0.4"
 tempfile = "3"
+# Decoding PNG bytes for tray icon swaps. Only `png` codec enabled so the
+# binary doesn't bloat with JPEG/WebP/etc.
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 # `directories` resolves OS-canonical config paths (XDG on Linux,
 # ~/Library on Mac, %APPDATA% on Windows).
