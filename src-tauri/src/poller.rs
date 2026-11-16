@@ -61,7 +61,12 @@ impl PollerHandle {
 /// Spawns the polling task. Caller keeps the returned handle so it can stop
 /// the task on app exit / config reload. The `on_status` closure is invoked
 /// every time the status changes — the caller wires it to a Tauri event.
-pub fn spawn<F>(config: PrinterSlot, poll_interval: u64, status: SharedStatus, on_status: F) -> PollerHandle
+pub fn spawn<F>(
+    config: PrinterSlot,
+    poll_interval: u64,
+    status: SharedStatus,
+    on_status: F,
+) -> PollerHandle
 where
     F: Fn(PollerStatus) + Send + Sync + 'static,
 {

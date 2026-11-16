@@ -248,8 +248,7 @@ fn start_pairing(app: AppHandle, pairing: State<'_, PairingState>) -> Result<(),
 
     // Building the URL by hand (instead of `Url::parse_with_params`) so we
     // surface a clear error if the override env var is malformed.
-    let mut url = Url::parse(&pairing_base_url())
-        .map_err(|e| format!("Bad pairing URL: {e}"))?;
+    let mut url = Url::parse(&pairing_base_url()).map_err(|e| format!("Bad pairing URL: {e}"))?;
     url.query_pairs_mut()
         .append_pair("device_code", &device_code)
         .append_pair("callback", "lesscommerce-print-agent://paired")
@@ -310,7 +309,11 @@ async fn finish_setup(
 
 /// Odpina jedną drukarkę (także tę w trakcie parowania). Reszta drukuje dalej.
 #[tauri::command]
-async fn remove_printer(id: String, app: AppHandle, state: State<'_, PollerState>) -> Result<(), String> {
+async fn remove_printer(
+    id: String,
+    app: AppHandle,
+    state: State<'_, PollerState>,
+) -> Result<(), String> {
     let mut cfg = AgentConfig::load_or_default();
     cfg.printers.retain(|p| p.id() != id);
     cfg.save().map_err(|e| e.to_string())?;
@@ -412,7 +415,11 @@ async fn restart_pollers(app: &AppHandle, state: &State<'_, PollerState>, cfg: A
         initial.system_printer = slot.system_printer.clone();
         initial.printer_name = slot.display_name.clone();
         initial.state = "polling".into();
-        state.statuses.lock().unwrap().insert(id.clone(), initial.clone());
+        state
+            .statuses
+            .lock()
+            .unwrap()
+            .insert(id.clone(), initial.clone());
 
         let status = Arc::new(Mutex::new(initial));
         let map = state.statuses.clone();
@@ -423,7 +430,10 @@ async fn restart_pollers(app: &AppHandle, state: &State<'_, PollerState>, cfg: A
             let (agg, list) = {
                 let mut m = map.lock().unwrap();
                 m.insert(snapshot.id.clone(), snapshot);
-                (aggregate_status(&m), m.values().cloned().collect::<Vec<_>>())
+                (
+                    aggregate_status(&m),
+                    m.values().cloned().collect::<Vec<_>>(),
+                )
             };
             refresh_tray(&app_for_emit, &agg);
             let _ = app_for_emit.emit("poller-status", &list);
@@ -498,7 +508,8 @@ fn handle_deep_link_urls(app: &AppHandle, urls: Vec<Url>) {
                 let mut cfg = AgentConfig::load_or_default();
                 // Porzucone wcześniej parowanie (bez wybranej drukarki) nie
                 // zostaje jako martwy wpis.
-                cfg.printers.retain(|p| p.is_complete() || p.printer_token == slot.printer_token);
+                cfg.printers
+                    .retain(|p| p.is_complete() || p.printer_token == slot.printer_token);
                 cfg.upsert_pairing(slot);
                 if let Err(err) = cfg.save() {
                     log::error!("Failed to save config: {err}");
@@ -596,7 +607,9 @@ fn getrandom_bytes(buf: &mut [u8]) {
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(1);
     for byte in buf.iter_mut() {
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         *byte = (seed >> 56) as u8;
     }
 }

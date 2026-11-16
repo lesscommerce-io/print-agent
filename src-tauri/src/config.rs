@@ -133,7 +133,11 @@ impl AgentConfig {
 
     /// Dodaje świeżo sparowaną drukarkę (albo odświeża token, jeśli już jest).
     pub fn upsert_pairing(&mut self, slot: PrinterSlot) {
-        if let Some(existing) = self.printers.iter_mut().find(|p| p.printer_token == slot.printer_token) {
+        if let Some(existing) = self
+            .printers
+            .iter_mut()
+            .find(|p| p.printer_token == slot.printer_token)
+        {
             existing.api_url = slot.api_url;
             existing.display_name = slot.display_name;
         } else {
@@ -143,11 +147,17 @@ impl AgentConfig {
 
     /// Drukarka sparowana, ale jeszcze bez drukarki systemowej.
     pub fn pending(&self) -> Option<&PrinterSlot> {
-        self.printers.iter().find(|p| p.system_printer.trim().is_empty())
+        self.printers
+            .iter()
+            .find(|p| p.system_printer.trim().is_empty())
     }
 
     pub fn complete_printers(&self) -> Vec<PrinterSlot> {
-        self.printers.iter().filter(|p| p.is_complete()).cloned().collect()
+        self.printers
+            .iter()
+            .filter(|p| p.is_complete())
+            .cloned()
+            .collect()
     }
 
     pub fn is_complete(&self) -> bool {
@@ -175,14 +185,23 @@ mod tests {
     #[test]
     fn pairing_adds_second_printer_and_pending_is_found() {
         let mut cfg = AgentConfig::default();
-        let slot = |t: &str, sp: &str| PrinterSlot { api_url: "https://api.x".into(), printer_token: t.into(), system_printer: sp.into(), display_name: None };
+        let slot = |t: &str, sp: &str| PrinterSlot {
+            api_url: "https://api.x".into(),
+            printer_token: t.into(),
+            system_printer: sp.into(),
+            display_name: None,
+        };
         cfg.upsert_pairing(slot("lpa_live_one", "Zebra"));
         cfg.upsert_pairing(slot("lpa_live_two", ""));
         assert_eq!(cfg.printers.len(), 2);
         assert_eq!(cfg.pending().unwrap().printer_token, "lpa_live_two");
         assert_eq!(cfg.complete_printers().len(), 1);
         cfg.upsert_pairing(slot("lpa_live_one", ""));
-        assert_eq!(cfg.printers.len(), 2, "ponowne parowanie tej samej drukarki nie dubluje wpisu");
+        assert_eq!(
+            cfg.printers.len(),
+            2,
+            "ponowne parowanie tej samej drukarki nie dubluje wpisu"
+        );
         assert_eq!(cfg.printers[0].system_printer, "Zebra");
     }
 }
