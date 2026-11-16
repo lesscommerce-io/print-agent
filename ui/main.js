@@ -124,7 +124,8 @@ async function refreshPrinters(preferred) {
     for (const p of list) {
       const opt = document.createElement("option");
       opt.value = p.name;
-      opt.textContent = used.has(p.name) ? `${p.name} (już używana)` : p.name;
+      const label = p.label && p.label !== p.name ? p.label : p.name.replace(/_+/g, " ").trim();
+      opt.textContent = used.has(p.name) ? `${label} (już używana)` : label;
       select.appendChild(opt);
     }
     if (preferred) select.value = preferred;
