@@ -180,3 +180,13 @@ code {
   padding: 1px 5px;
   border-radius: 3px;
 }
+
+/* Lista drukarek (v0.4 — kilka drukarek w jednym agencie) */
+.list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.list-head h2 { margin: 0; }
+.printer-list { display: grid; gap: 10px; margin-top: 12px; }
+.printer-item { border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: grid; gap: 8px; background: var(--bg-elevated); }
+.printer-item .status-row { margin: 0; }
+.printer-item .meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); }
+.printer-item .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.printer-empty { text-align: center; padding: 24px; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }

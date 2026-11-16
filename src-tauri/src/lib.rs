@@ -10,17 +10,20 @@
 //!   PRINTER — picks the system printer (the only thing that varies per
 //!             host). Calls `finish_setup()`, which writes config and
 //!             starts polling.
-//!   STATUS  — live tray-like view: dot color + counters.
+//!   STATUS  — live view per printer: dot color + counters.
 //!
-//! `unpair()` wipes config and returns to PAIR.
+//! Kilka drukarek: każde kolejne „Dodaj drukarkę” to nowe parowanie (nowa
+//! drukarka w panelu, własny token) i własna pętla odpytywania.
+//! `remove_printer(id)` odpina jedną, `unpair()` wszystkie.
 
 mod api;
 mod config;
 mod poller;
 mod printer;
 
-use config::AgentConfig;
-use poller::{PollerHandle, PollerStatus, SharedStatus};
+use config::{AgentConfig, PrinterSlot};
+use poller::{PollerHandle, PollerStatus};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tauri::image::Image;
@@ -101,10 +104,51 @@ fn refresh_tray(app: &AppHandle, status: &PollerStatus) {
     }
 }
 
+type StatusMap = Arc<StdMutex<BTreeMap<String, PollerStatus>>>;
+
 #[derive(Default)]
 struct PollerState {
-    handle: Mutex<Option<PollerHandle>>,
-    status: SharedStatus,
+    handles: Mutex<Vec<PollerHandle>>,
+    statuses: StatusMap,
+}
+
+/// Jeden stan dla ikony w zasobniku: błąd którejkolwiek drukarki wygrywa,
+/// potem drukowanie, potem łączenie.
+fn aggregate_status(map: &BTreeMap<String, PollerStatus>) -> PollerStatus {
+    if map.is_empty() {
+        return PollerStatus::default();
+    }
+    let rank = |s: &str| match s {
+        "error" => 5,
+        "printing" => 4,
+        "polling" => 3,
+        "idle" => 2,
+        "stopped" => 1,
+        _ => 0,
+    };
+    let mut out = PollerStatus::default();
+    let mut best = -1;
+    let mut names = Vec::new();
+    for st in map.values() {
+        if rank(&st.state) > best {
+            best = rank(&st.state);
+            out.state = st.state.clone();
+            out.last_message = st.last_message.clone();
+        }
+        out.jobs_printed += st.jobs_printed;
+        out.jobs_failed += st.jobs_failed;
+        if let Some(n) = &st.printer_name {
+            names.push(n.clone());
+        }
+    }
+    if !names.is_empty() {
+        out.printer_name = Some(names.join(", "));
+    }
+    out
+}
+
+fn status_list(state: &PollerState) -> Vec<PollerStatus> {
+    state.statuses.lock().unwrap().values().cloned().collect()
 }
 
 /// In-memory pairing state — the device_code we expect the panel page to
@@ -144,11 +188,38 @@ impl PairingState {
 // IPC commands
 // ============================================================================
 
-/// Returns the current saved config (token + api + printer). UI uses this on
-/// boot to decide which screen to show.
+/// Saved config (list of printers, without tokens). UI uses this on boot to
+/// decide which screen to show.
+#[derive(serde::Serialize)]
+struct PrinterView {
+    id: String,
+    display_name: Option<String>,
+    system_printer: String,
+}
+
+#[derive(serde::Serialize)]
+struct ConfigView {
+    printers: Vec<PrinterView>,
+    pending: Option<PrinterView>,
+    launch_at_login: bool,
+}
+
+fn view(slot: &PrinterSlot) -> PrinterView {
+    PrinterView {
+        id: slot.id(),
+        display_name: slot.display_name.clone(),
+        system_printer: slot.system_printer.clone(),
+    }
+}
+
 #[tauri::command]
-async fn load_pairing_state() -> Result<Option<AgentConfig>, String> {
-    AgentConfig::load().map_err(|e| e.to_string())
+async fn load_pairing_state() -> Result<Option<ConfigView>, String> {
+    let cfg = AgentConfig::load().map_err(|e| e.to_string())?;
+    Ok(cfg.map(|c| ConfigView {
+        printers: c.complete_printers().iter().map(view).collect(),
+        pending: c.pending().map(view),
+        launch_at_login: c.launch_at_login,
+    }))
 }
 
 /// Generate a device_code, open the panel pairing page in the default
@@ -203,8 +274,8 @@ async fn list_printers() -> Result<Vec<printer::SystemPrinter>, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Called from PRINTER screen — combines the chosen system printer with the
-/// already-saved (token + api) and persists. Then starts polling.
+/// Called from PRINTER screen — assigns the chosen system printer to the
+/// freshly paired entry and persists. Then (re)starts polling for all.
 #[tauri::command]
 async fn finish_setup(
     system_printer: String,
@@ -215,7 +286,12 @@ async fn finish_setup(
     let mut cfg = AgentConfig::load()
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "No pairing on disk — pair the device first.".to_string())?;
-    cfg.system_printer = system_printer;
+    let slot = cfg
+        .printers
+        .iter_mut()
+        .find(|p| p.system_printer.trim().is_empty())
+        .ok_or_else(|| "Nie ma drukarki czekającej na wybór.".to_string())?;
+    slot.system_printer = system_printer;
     cfg.launch_at_login = launch_at_login;
     cfg.save().map_err(|e| e.to_string())?;
 
@@ -228,7 +304,37 @@ async fn finish_setup(
         mgr.disable()
     };
 
-    restart_poller(&app, &state, cfg).await;
+    restart_pollers(&app, &state, cfg).await;
+    Ok(())
+}
+
+/// Odpina jedną drukarkę (także tę w trakcie parowania). Reszta drukuje dalej.
+#[tauri::command]
+async fn remove_printer(id: String, app: AppHandle, state: State<'_, PollerState>) -> Result<(), String> {
+    let mut cfg = AgentConfig::load_or_default();
+    cfg.printers.retain(|p| p.id() != id);
+    cfg.save().map_err(|e| e.to_string())?;
+    restart_pollers(&app, &state, cfg).await;
+    Ok(())
+}
+
+/// Zmiana drukarki systemowej dla już sparowanej drukarki.
+#[tauri::command]
+async fn set_system_printer(
+    id: String,
+    system_printer: String,
+    app: AppHandle,
+    state: State<'_, PollerState>,
+) -> Result<(), String> {
+    let mut cfg = AgentConfig::load_or_default();
+    let slot = cfg
+        .printers
+        .iter_mut()
+        .find(|p| p.id() == id)
+        .ok_or_else(|| "Nie znaleziono drukarki.".to_string())?;
+    slot.system_printer = system_printer;
+    cfg.save().map_err(|e| e.to_string())?;
+    restart_pollers(&app, &state, cfg).await;
     Ok(())
 }
 
@@ -237,8 +343,8 @@ async fn finish_setup(
 async fn unpair(app: AppHandle, state: State<'_, PollerState>) -> Result<(), String> {
     // Stop the poller first so it doesn't hit a half-deleted config mid-flight.
     {
-        let mut handle_guard = state.handle.lock().await;
-        if let Some(prev) = handle_guard.take() {
+        let mut handles = state.handles.lock().await;
+        for prev in handles.drain(..) {
             prev.stop();
         }
     }
@@ -249,23 +355,21 @@ async fn unpair(app: AppHandle, state: State<'_, PollerState>) -> Result<(), Str
 
     // Reset status to "unconfigured" so the tray icon stops claiming we're
     // online with stale info.
-    {
-        let mut s = state.status.lock().await;
-        *s = PollerStatus::default();
-    }
+    state.statuses.lock().unwrap().clear();
+    refresh_tray(&app, &PollerStatus::default());
 
     // Disable autostart on unpair — fresh setup will re-enable if the user
     // ticks the checkbox again.
     use tauri_plugin_autostart::ManagerExt;
     let _ = app.autolaunch().disable();
 
-    let _ = app.emit("poller-status", &PollerStatus::default());
+    let _ = app.emit("poller-status", Vec::<PollerStatus>::new());
     Ok(())
 }
 
 #[tauri::command]
-async fn get_status(state: State<'_, PollerState>) -> Result<PollerStatus, String> {
-    Ok(state.status.lock().await.clone())
+async fn get_status(state: State<'_, PollerState>) -> Result<Vec<PollerStatus>, String> {
+    Ok(status_list(&state))
 }
 
 #[tauri::command]
@@ -283,28 +387,49 @@ fn open_documentation(app: AppHandle) -> Result<(), String> {
 // Poller lifecycle
 // ============================================================================
 
-async fn restart_poller(app: &AppHandle, state: &State<'_, PollerState>, cfg: AgentConfig) {
-    let mut handle_guard = state.handle.lock().await;
-    if let Some(prev) = handle_guard.take() {
+/// Zatrzymuje wszystkie pętle i startuje po jednej na każdą skonfigurowaną
+/// drukarkę. Każda ma własny token, więc serwer widzi je jako osobne drukarki.
+async fn restart_pollers(app: &AppHandle, state: &State<'_, PollerState>, cfg: AgentConfig) {
+    let mut handles = state.handles.lock().await;
+    for prev in handles.drain(..) {
         prev.stop();
     }
-    if !cfg.is_complete() {
-        let mut s = state.status.lock().await;
-        s.state = "unconfigured".into();
+    state.statuses.lock().unwrap().clear();
+
+    let printers = cfg.complete_printers();
+    if printers.is_empty() {
+        let mut s = PollerStatus::default();
         s.last_message = Some("Configure the agent to start printing.".into());
         refresh_tray(app, &s);
+        let _ = app.emit("poller-status", Vec::<PollerStatus>::new());
         return;
     }
 
-    let app_for_emit = app.clone();
-    let status = state.status.clone();
-    let new_handle = poller::spawn(cfg, status, move |snapshot| {
-        // Two consumers per status update: the setup window (to drive the
-        // status panel) and the tray (icon + tooltip).
-        refresh_tray(&app_for_emit, &snapshot);
-        let _ = app_for_emit.emit("poller-status", &snapshot);
-    });
-    *handle_guard = Some(new_handle);
+    for slot in printers {
+        let id = slot.id();
+        let mut initial = PollerStatus::default();
+        initial.id = id.clone();
+        initial.system_printer = slot.system_printer.clone();
+        initial.printer_name = slot.display_name.clone();
+        initial.state = "polling".into();
+        state.statuses.lock().unwrap().insert(id.clone(), initial.clone());
+
+        let status = Arc::new(Mutex::new(initial));
+        let map = state.statuses.clone();
+        let app_for_emit = app.clone();
+        let handle = poller::spawn(slot, cfg.poll_interval, status, move |snapshot| {
+            // Two consumers per status update: the setup window (list of
+            // printers) and the tray (one aggregated icon + tooltip).
+            let (agg, list) = {
+                let mut m = map.lock().unwrap();
+                m.insert(snapshot.id.clone(), snapshot);
+                (aggregate_status(&m), m.values().cloned().collect::<Vec<_>>())
+            };
+            refresh_tray(&app_for_emit, &agg);
+            let _ = app_for_emit.emit("poller-status", &list);
+        });
+        handles.push(handle);
+    }
 }
 
 // ============================================================================
@@ -323,7 +448,7 @@ struct PairedPayload {
 fn handle_paired_url(
     url: &Url,
     pairing: &PairingState,
-) -> Result<(AgentConfig, PairedPayload), String> {
+) -> Result<(PrinterSlot, PairedPayload), String> {
     if url.scheme() != "lesscommerce-print-agent" {
         return Err(format!("Unexpected scheme: {}", url.scheme()));
     }
@@ -354,16 +479,14 @@ fn handle_paired_url(
         return Err("device_code mismatch — ignoring callback".into());
     }
 
-    let cfg = AgentConfig {
+    let slot = PrinterSlot {
         api_url: api,
         printer_token: token,
         // Filled in by the next screen — we only persist the pairing here.
         system_printer: String::new(),
         display_name: name.clone(),
-        poll_interval: 5,
-        launch_at_login: false,
     };
-    Ok((cfg, PairedPayload { name }))
+    Ok((slot, PairedPayload { name }))
 }
 
 fn handle_deep_link_urls(app: &AppHandle, urls: Vec<Url>) {
@@ -371,7 +494,12 @@ fn handle_deep_link_urls(app: &AppHandle, urls: Vec<Url>) {
     for url in urls {
         log::info!("Deep link received: {}", url);
         match handle_paired_url(&url, &pairing) {
-            Ok((cfg, payload)) => {
+            Ok((slot, payload)) => {
+                let mut cfg = AgentConfig::load_or_default();
+                // Porzucone wcześniej parowanie (bez wybranej drukarki) nie
+                // zostaje jako martwy wpis.
+                cfg.printers.retain(|p| p.is_complete() || p.printer_token == slot.printer_token);
+                cfg.upsert_pairing(slot);
                 if let Err(err) = cfg.save() {
                     log::error!("Failed to save config: {err}");
                     let _ = app.emit("pairing-error", err.to_string());
@@ -496,10 +624,7 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--launched-from-autostart"]),
         ))
-        .manage(PollerState {
-            handle: Mutex::new(None),
-            status: Arc::new(Mutex::new(PollerStatus::default())),
-        })
+        .manage(PollerState::default())
         .manage(PairingState::default())
         .invoke_handler(tauri::generate_handler![
             load_pairing_state,
@@ -507,6 +632,8 @@ pub fn run() {
             cancel_pairing,
             list_printers,
             finish_setup,
+            remove_printer,
+            set_system_printer,
             unpair,
             get_status,
             open_documentation
@@ -530,7 +657,7 @@ pub fn run() {
             loop {
                 interval.tick().await;
                 let pulse_state: State<'_, PollerState> = pulse_app.state();
-                let snapshot = pulse_state.status.lock().await.clone();
+                let snapshot = aggregate_status(&pulse_state.statuses.lock().unwrap());
                 if snapshot.state != "printing" {
                     continue;
                 }
@@ -578,7 +705,7 @@ pub fn run() {
             if cfg.is_complete() {
                 tauri::async_runtime::spawn(async move {
                     let state: State<'_, PollerState> = app_for_boot.state();
-                    restart_poller(&app_for_boot, &state, cfg).await;
+                    restart_pollers(&app_for_boot, &state, cfg).await;
                 });
             }
         }

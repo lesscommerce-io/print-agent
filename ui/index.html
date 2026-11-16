@@ -29,6 +29,7 @@
       <button id="btn-start-pair" class="btn btn-primary btn-lg" type="button">
         Powiąż z LessCommerce
       </button>
+      <button id="btn-back-list" class="btn btn-link hidden" type="button">← wróć do listy drukarek</button>
       <div id="pair-status" class="muted small mt-2 hidden">
         Czekam na potwierdzenie z przeglądarki…
         <button id="btn-cancel-pair" class="btn btn-link" type="button">anuluj</button>
@@ -39,7 +40,7 @@
     <!-- Screen 2: pick system printer (after pairing)                       -->
     <!-- =================================================================== -->
     <section id="screen-printer" class="screen card hidden">
-      <h2>Ostatni krok</h2>
+      <h2 id="printer-title">Ostatni krok</h2>
       <p class="muted">
         Powiązano z <strong id="paired-name">drukarką</strong>. Wybierz teraz
         drukarkę systemową, na którą mają iść etykiety.
@@ -56,7 +57,7 @@
         <small class="muted" id="printers-help">Lista pobierana z systemu (CUPS / Get-Printer).</small>
       </label>
 
-      <label class="field-checkbox">
+      <label class="field-checkbox" id="launch-row">
         <input type="checkbox" id="launch-at-login" checked />
         <span>Uruchamiaj automatycznie po zalogowaniu</span>
       </label>
@@ -65,6 +66,7 @@
         <button id="btn-finish" class="btn btn-primary" type="button">
           Zacznij drukować
         </button>
+        <button id="btn-cancel-printer" class="btn btn-ghost" type="button">Anuluj</button>
         <span id="finish-message" class="muted small"></span>
       </div>
     </section>
@@ -73,21 +75,17 @@
     <!-- Screen 3: live status (after setup is done)                         -->
     <!-- =================================================================== -->
     <section id="screen-status" class="screen card hidden">
-      <div class="status-row">
-        <div class="status-dot" id="status-dot"></div>
-        <div class="status-text">
-          <div class="status-state" id="status-state">Ładowanie…</div>
-          <div class="status-message muted" id="status-message"></div>
-        </div>
+      <div class="list-head">
+        <h2>Drukarki</h2>
+        <button id="btn-add-printer" class="btn btn-primary" type="button">Dodaj drukarkę</button>
       </div>
-      <dl class="status-meta">
-        <div><dt>Drukarka w panelu</dt><dd id="status-printer">—</dd></div>
-        <div><dt>Drukarka systemowa</dt><dd id="status-system-printer">—</dd></div>
-        <div><dt>Wydrukowane</dt><dd id="status-printed">0</dd></div>
-        <div><dt>Błędy</dt><dd id="status-failed">0</dd></div>
-      </dl>
+      <p class="muted small">
+        Każda drukarka to osobna drukarka w panelu LessCommerce. W automatyzacjach
+        i przy druku wybierasz, na którą idzie etykieta.
+      </p>
+      <div id="printer-list" class="printer-list"></div>
       <div class="form-actions mt-2">
-        <button id="btn-unpair" class="btn btn-ghost" type="button">Odepnij i zacznij od nowa</button>
+        <button id="btn-unpair" class="btn btn-ghost" type="button">Odepnij wszystkie</button>
       </div>
     </section>
   </main>

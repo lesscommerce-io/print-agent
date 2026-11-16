@@ -21,6 +21,12 @@ Po ściągnięciu zainstaluj klikając installer (Windows/Mac), albo przeciągni
 3. Aplikacja sama wczyta token i adres API. Wybierz drukarkę systemową z dropdownu, zaznacz „Uruchamiaj automatycznie po zalogowaniu" i kliknij **Zapisz i uruchom**.
 4. Okno chowa się do trayu — od teraz prawy klik na ikonę → menu z opcjami, lewy klik → przywraca okno.
 
+### Kilka drukarek na jednym komputerze
+
+Od v0.4 jeden agent obsługuje dowolną liczbę drukarek. W oknie agenta kliknij **Dodaj drukarkę** — to kolejne parowanie (w panelu powstaje osobna drukarka z własnym tokenem) i wybór drukarki systemowej. Każda drukarka ma własną pętlę odpytywania; w panelu (druk ręczny, automatyzacje) wybierasz, na którą idzie etykieta. Konfiguracja z v0.3 (jedna drukarka) przenosi się sama.
+
+Agent pyta serwer o nowe etykiety co 5 sekund na każdą drukarkę (serwer może zmienić ten czas w odpowiedzi na heartbeat); kolejka pusta = jedno krótkie zapytanie.
+
 Konfiguracja zapisywana jest w:
 - Linux: `~/.config/lesscommerce/print-agent.json`
 - macOS: `~/Library/Application Support/io.lesscommerce.print-agent/print-agent.json`

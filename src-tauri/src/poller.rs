@@ -5,7 +5,7 @@
 //! "Quit" from the system tray or on a config reload.
 
 use crate::api::{HeartbeatData, PrintApi};
-use crate::config::AgentConfig;
+use crate::config::PrinterSlot;
 use crate::printer::print_label;
 use serde::Serialize;
 use std::sync::Arc;
@@ -24,6 +24,9 @@ pub struct PollerStatus {
     pub jobs_printed: u64,
     pub jobs_failed: u64,
     pub printer_name: Option<String>, // friendly name returned by heartbeat
+    /// Lokalny identyfikator wpisu w konfiguracji (kilka drukarek naraz).
+    pub id: String,
+    pub system_printer: String,
 }
 
 impl Default for PollerStatus {
@@ -36,6 +39,8 @@ impl Default for PollerStatus {
             jobs_printed: 0,
             jobs_failed: 0,
             printer_name: None,
+            id: String::new(),
+            system_printer: String::new(),
         }
     }
 }
@@ -56,7 +61,7 @@ impl PollerHandle {
 /// Spawns the polling task. Caller keeps the returned handle so it can stop
 /// the task on app exit / config reload. The `on_status` closure is invoked
 /// every time the status changes — the caller wires it to a Tauri event.
-pub fn spawn<F>(config: AgentConfig, status: SharedStatus, on_status: F) -> PollerHandle
+pub fn spawn<F>(config: PrinterSlot, poll_interval: u64, status: SharedStatus, on_status: F) -> PollerHandle
 where
     F: Fn(PollerStatus) + Send + Sync + 'static,
 {
@@ -81,7 +86,7 @@ where
             .map(|h| h.to_string_lossy().to_string())
             .unwrap_or_else(|_| "unknown".to_string());
 
-        let mut interval_secs = config.poll_interval.max(1);
+        let mut interval_secs = poll_interval.max(1);
 
         loop {
             if *stop_rx.borrow() {
