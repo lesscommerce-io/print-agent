@@ -37,7 +37,7 @@ use tokio::sync::Mutex;
 /// URL of the LessCommerce panel page that handles device pairing. Hardcoded
 /// to prod; can be overridden at runtime via `LESSCOMMERCE_PAIRING_URL` for
 /// staging or local dev (e.g. `http://localhost:8080/print-agent/pair`).
-const DEFAULT_PAIRING_URL: &str = "https://panel.lesscommerce.io/print-agent/pair";
+const DEFAULT_PAIRING_URL: &str = "https://app.lesscommerce.io/print-agent/pair";
 
 fn pairing_base_url() -> String {
     std::env::var("LESSCOMMERCE_PAIRING_URL").unwrap_or_else(|_| DEFAULT_PAIRING_URL.to_string())
