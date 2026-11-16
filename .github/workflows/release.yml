@@ -23,7 +23,7 @@ jobs:
             target: aarch64-apple-darwin
             label: macos-arm64
             bundles: app,dmg
-          - platform: macos-13         # Intel Mac (legacy)
+          - platform: macos-15-intel   # Intel Mac (macos-13 wycofany przez GitHub)
             target: x86_64-apple-darwin
             label: macos-x64
             bundles: app,dmg
@@ -103,7 +103,7 @@ jobs:
               # NSIS produces <name>_<version>_x64-setup.exe — easier install,
               # silent install via /S. MSI also uploaded for IT-managed deployments.
               cp "$BUNDLE_DIR"/nsis/*-setup.exe stable/lesscommerce-print-agent-windows-x64-setup.exe
-              cp "$BUNDLE_DIR"/msi/*_x64_*.msi  stable/lesscommerce-print-agent-windows-x64.msi
+              cp "$BUNDLE_DIR"/msi/*_x64_pl-PL.msi stable/lesscommerce-print-agent-windows-x64.msi
               ;;
             macos-arm64)
               cp "$BUNDLE_DIR"/dmg/*.dmg stable/lesscommerce-print-agent-macos-arm64.dmg
