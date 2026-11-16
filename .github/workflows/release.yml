@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-14         # Apple Silicon (M-chip)
+          - platform: macos-15         # Apple Silicon (macos-14 wycofany przez GitHub)
             target: aarch64-apple-darwin
             label: macos-arm64
             bundles: app,dmg
