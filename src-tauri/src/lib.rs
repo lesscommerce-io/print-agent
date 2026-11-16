@@ -401,8 +401,10 @@ async fn restart_pollers(app: &AppHandle, state: &State<'_, PollerState>, cfg: A
 
     let printers = cfg.complete_printers();
     if printers.is_empty() {
-        let mut s = PollerStatus::default();
-        s.last_message = Some("Configure the agent to start printing.".into());
+        let s = PollerStatus {
+            last_message: Some("Configure the agent to start printing.".into()),
+            ..Default::default()
+        };
         refresh_tray(app, &s);
         let _ = app.emit("poller-status", Vec::<PollerStatus>::new());
         return;
@@ -410,11 +412,13 @@ async fn restart_pollers(app: &AppHandle, state: &State<'_, PollerState>, cfg: A
 
     for slot in printers {
         let id = slot.id();
-        let mut initial = PollerStatus::default();
-        initial.id = id.clone();
-        initial.system_printer = slot.system_printer.clone();
-        initial.printer_name = slot.display_name.clone();
-        initial.state = "polling".into();
+        let initial = PollerStatus {
+            id: id.clone(),
+            system_printer: slot.system_printer.clone(),
+            printer_name: slot.display_name.clone(),
+            state: "polling".into(),
+            ..Default::default()
+        };
         state
             .statuses
             .lock()
