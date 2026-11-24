@@ -1,0 +1,70 @@
+# Code scan (Semgrep): every push/PR fails on NEW high-severity findings
+# (diff against the previous commit); every Monday a full scan opens or
+# updates an issue labelled "security" with everything still present.
+name: Code scan
+
+on:
+  push:
+    branches: [main, stage]
+  pull_request:
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: code-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Install Semgrep
+        run: pipx install semgrep==1.186.0
+      - name: Scan
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          base=()
+          if [ "$EVENT" = push ] && [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BEFORE" 2>/dev/null; then
+            base=(--baseline-commit "$BEFORE")
+          elif [ "$EVENT" = pull_request ]; then
+            base=(--baseline-commit "$PR_BASE")
+          fi
+          set +e
+          semgrep scan --config p/default --config p/php --config p/secrets --config p/github-actions \
+            --severity ERROR --metrics=off --error "${base[@]}" \
+            --exclude-rule php.lang.security.exec-use.exec-use \
+            --exclude-rule php.lang.security.ftp-use.ftp-use \
+            --exclude-rule dockerfile.security.missing-user.missing-user \
+            --exclude-rule dockerfile.security.missing-user-entrypoint.missing-user-entrypoint \
+            --json-output=semgrep.json --text
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+        id: scan
+      - name: Weekly issue
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          n=$(jq '.results | length' semgrep.json)
+          title="Code scan: findings"
+          num=$(gh issue list --label security --state open --search "\"$title\" in:title" --json number -q '.[0].number')
+          if [ "$n" = 0 ]; then
+            [ -n "$num" ] && gh issue close "$num" -c "Clean scan $(date -u +%F)."
+            exit 0
+          fi
+          body=$(jq -r '"Semgrep, \(.results|length) high-severity finding(s) — run '"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"'\n\n" + ([.results[] | "- `\(.path):\(.start.line)` \(.check_id | split(".") | last) — \(.extra.message | split("\n")[0] | .[0:160])"] | join("\n"))' semgrep.json)
+          gh label create security --color B60205 2>/dev/null || true
+          if [ -n "$num" ]; then gh issue edit "$num" --body "$body"; else gh issue create --title "$title" --label security --body "$body"; fi
+      - name: Fail on new findings
+        if: steps.scan.outputs.rc != '0'
+        run: exit 1
